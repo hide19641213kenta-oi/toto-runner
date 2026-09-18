@@ -25,5 +25,3 @@ jobs:
 
       - name: Run Python script
         env:
-          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
-        run: python toto_cloud_fetcher.py
