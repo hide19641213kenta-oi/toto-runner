@@ -3,19 +3,18 @@ name: Toto Auto Fetcher Schedule
 on:
   schedule:
     # 毎週土曜日・日曜日の朝8時(JST)に自動起動
-    # ※ GitHub ActionsはUTC時間基準のため JST 08:00 = UTC 23:00 (前日)
     - cron: '0 23 * * 5,6'
-  workflow_dispatch: # GitHub画面からボタン手動実行を可能にする設定
+  workflow_dispatch: # 手動実行ボタン
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
     steps:
       - name: リポジトリのチェックアウト
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # @v3 から @v4 に更新
 
       - name: Python環境のセットアップ
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # @v4 から @v5 に更新
         with:
           python-version: '3.10'
 
@@ -26,6 +25,9 @@ jobs:
 
       - name: Pythonスクリプトの全自動実行
         env:
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
+        run: |
+          python toto_cloud_fetcher.py
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: |
           python toto_cloud_fetcher.py
