@@ -24,4 +24,6 @@ jobs:
           pip install requests
 
       - name: Run Python script
+        run: python toto_cloud_fetcher.py
         env:
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
