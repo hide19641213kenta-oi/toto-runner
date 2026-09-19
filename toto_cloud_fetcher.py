@@ -14,7 +14,6 @@ HTTP_HEADERS = {
     )
 }
 
-# 正しいドメイン (www.toto-dream.com)
 TARGET_URLS = [
     "https://www.toto-dream.com/toto/index.html",
     "https://www.toto-dream.com/toto/",
@@ -22,26 +21,41 @@ TARGET_URLS = [
 
 
 def fetch_latest_round_and_carryover():
+  # 1. 環境変数 TOTO_ROUND が設定されている場合は優先使用
   env_round = os.getenv("TOTO_ROUND")
-  if env_round:
-    return env_round, 350000000
+  if env_round and env_round.strip():
+    print(f"ℹ️ Secretsの TOTO_ROUND ({env_round}) を使用します。")
+    return env_round.strip(), 350000000
 
+  # 2. Webサイトから最新（最も大きい）回号を自動取得
   for url in TARGET_URLS:
     try:
+      print(f"📡 接続試行中: {url}")
       res = requests.get(url, headers=HTTP_HEADERS, timeout=12)
       if res.status_code != 200:
         continue
       res.encoding = res.apparent_encoding or "Shift_JIS"
       html = res.text
 
-      match = re.search(r"第\s*(\d{3,4})\s*回", html)
-      if match:
-        round_str = f"第{match.group(1)}回"
+      # ページ内の「第XXXX回」または「XXXX回」をすべて抽出
+      found_rounds = re.findall(r"(?:第\s*)?(\d{4})\s*回", html)
+      valid_nums = [int(n) for n in found_rounds if 1000 <= int(n) <= 9999]
+
+      if valid_nums:
+        # ページ内で最も大きい数字＝現在受付中・最新の回号
+        latest_num = max(valid_nums)
+        round_str = f"第{latest_num}回"
+
+        # キャリーオーバー額の抽出
         co_match = re.search(r"キャリーオーバー[^\d]*([\d,]+)\s*円", html)
         carryover = int(co_match.group(1).replace(",", "")) if co_match else 0
+
+        print(f"✅ 最新回号を検知: {round_str} (C/O: {carryover:,}円)")
         return round_str, carryover
-    except Exception:
+    except Exception as e:
+      print(f"⚠️ エラー ({url}): {e}")
       continue
+
   return None, 0
 
 
@@ -55,6 +69,7 @@ def main():
     print("❌ 開催回号を取得できませんでした（Fail-Safe安全停止）。")
     sys.exit(1)
 
+  # 送信ペイロード
   payload = {
       "round": round_str,
       "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
