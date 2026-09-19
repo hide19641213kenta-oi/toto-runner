@@ -4,7 +4,7 @@ on:
   schedule:
     # 毎日 日本時間 あさ8:00 (UTC 23:00) に自動起動
     - cron: '0 23 * * *'
-  workflow_dispatch: # 手動実行ボタン
+  workflow_dispatch:
 
 jobs:
   run-script:
@@ -24,7 +24,7 @@ jobs:
           pip install requests beautifulsoup4
 
       - name: Run Python script
-        run: python toto_cloud_fetcher.py
         env:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
           TOTO_ROUND: ${{ secrets.TOTO_ROUND }}
+        run: python toto_cloud_fetcher.py
