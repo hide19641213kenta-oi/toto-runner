@@ -6,7 +6,7 @@ import time
 import requests
 
 # GASのWebアプリURL
-GAS_WEBAPP_URL = os.getenv("https://script.google.com/macros/s/AKfycbz8Q-fjHB9YCZCw-W0eRtrwb5R4R6XaOtk0e7U2WLZ9xKnb1AcPOnMTCGPu8VLtwqLg/exec", "")
+GAS_WEBAPP_URL = os.getenv("GAS_WEBAPP_URL", "")
 
 HTTP_HEADERS = {
     "User-Agent": (
@@ -106,6 +106,3 @@ def main():
 
 if __name__ == "__main__":
   main()
-Step 3. 確定保存する
-右上の Commit changes... をクリック。
-出てきた画面で Commit changes（緑色のボタン） をもう一度クリックして保存します。
