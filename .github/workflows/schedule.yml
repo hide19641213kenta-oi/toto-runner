@@ -27,3 +27,4 @@ jobs:
         run: python toto_cloud_fetcher.py
         env:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
+          TOTO_ROUND: ${{ secrets.TOTO_ROUND }}
