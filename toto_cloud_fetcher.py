@@ -3,11 +3,10 @@ import os
 import re
 import sys
 import time
-from bs4 import BeautifulSoup
 import requests
 
 # ==============================================================================
-# toto Quant Engine - 実対戦カード取得＆事故防止スクレイパー
+# toto Quant Engine - 実対戦カード取得＆事故防止スクレイパー (標準ライブラリ版)
 # ==============================================================================
 
 GAS_WEBAPP_URL = os.getenv("GAS_WEBAPP_URL", "")
@@ -20,35 +19,32 @@ HTTP_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# 取得対象URL（toto公式サイト）
 TARGET_URL = "https://www.toto-dream.com/toto/index.html"
 
 
 def fetch_toto_real_data():
-  """公式サイトから「最新回号」「キャリーオーバー」「13試合の実対戦チーム名」「投票率」を取得"""
-  # Secretsで回号指定がある場合は最優先
   env_round = os.getenv("TOTO_ROUND")
 
   print(f"📡 公式サイトへ接続中: {TARGET_URL}")
-  res = requests.get(TARGET_URL, headers=HTTP_HEADERS, timeout=15)
-  if res.status_code != 200:
-    print(f"❌ HTTPエラー: {res.status_code}")
+  try:
+    res = requests.get(TARGET_URL, headers=HTTP_HEADERS, timeout=15)
+    if res.status_code != 200:
+      print(f"❌ HTTP通信エラー: Status {res.status_code}")
+      return None
+    res.encoding = res.apparent_encoding or "Shift_JIS"
+    html = res.text
+  except Exception as e:
+    print(f"❌ 接続失敗: {e}")
     return None
 
-  res.encoding = res.apparent_encoding or "Shift_JIS"
-  html = res.text
-  soup = BeautifulSoup(html, "html.parser")
-
-  # 1. 回号の判定
+  # 1. 回号の判定（Secrets指定があれば最優先、なければサイト内から最大数字を自動取得）
   round_str = None
   if env_round and env_round.strip():
     round_str = env_round.strip()
     print(f"ℹ️ Secrets指定の回号を使用: {round_str}")
   else:
-    # ページ内から「第XXXX回」を探す（販売中の回号を優先取得）
     matches = re.findall(r"第\s*(\d{4})\s*回", html)
     if matches:
-      # 重複を除去して数字順に並べ替え、最も新しい開催回を選択
       nums = sorted(list(set([int(m) for m in matches])), reverse=True)
       round_str = f"第{nums[0]}回"
       print(f"✅ 自動検知された最新回号: {round_str}")
@@ -61,74 +57,72 @@ def fetch_toto_real_data():
   co_match = re.search(r"キャリーオーバー[^\d]*([\d,]+)\s*円", html)
   carryover = int(co_match.group(1).replace(",", "")) if co_match else 0
 
-  # 3. 13試合の対戦チーム名スクレイピング
+  # 3. HTMLから対戦チーム名をスキャン（標準ライブラリ解析）
+  # スクリプト・スタイルタグを除去
+  clean_html = re.sub(
+      r"<(script|style)[^>]*>.*?</\1>",
+      "",
+      html,
+      flags=re.DOTALL | re.IGNORECASE,
+  )
+  td_pattern = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
+  raw_tds = [
+      re.sub(r"<[^>]+>", "", td).strip() for td in td_pattern.findall(clean_html)
+  ]
+
+  found_matches = {}
+  for i in range(len(raw_tds) - 2):
+    txt = raw_tds[i]
+    if txt.isdigit() and 1 <= int(txt) <= 13:
+      m_num = int(txt)
+      if m_num not in found_matches:
+        candidates = [
+            t
+            for t in raw_tds[i + 1 : i + 6]
+            if t and not t.isdigit() and len(t) <= 12 and "回" not in t
+        ]
+        if len(candidates) >= 2:
+          found_matches[m_num] = {
+              "home": candidates[0],
+              "away": candidates[1],
+          }
+
   matches_data = []
+  for m_no in range(1, 14):
+    if m_no in found_matches:
+      matches_data.append({
+          "match_no": m_no,
+          "home_team": found_matches[m_no]["home"],
+          "away_team": found_matches[m_no]["away"],
+          "public_votes": {"q1": 0.45, "q0": 0.28, "q2": 0.27},
+          "prob": {"p1": 0.50, "p0": 0.25, "p2": 0.25},
+      })
 
-  # totoの対戦表テーブルを取得
-  tables = soup.find_all("table")
-  for table in tables:
-    rows = table.find_all("tr")
-    for row in rows:
-      cols = row.find_all(["td", "th"])
-      col_texts = [
-          c.get_text(strip=True) for c in cols if c.get_text(strip=True)
-      ]
+  print(f"📊 抽出成功した対戦カード数: {len(matches_data)}/13 試合")
 
-      # 試合番号・ホームチーム・アウェイチームが含まれる行を抽出
-      if len(col_texts) >= 3 and col_texts[0].isdigit():
-        match_no = int(col_texts[0])
-        if 1 <= match_no <= 13:
-          home_team = col_texts[1]
-          away_team = col_texts[-1] if len(col_texts) >= 3 else col_texts[2]
-
-          # 不要な記号や「VS」を削除
-          home_team = re.sub(r"[VSvs\s\d]", "", home_team)
-          away_team = re.sub(r"[VSvs\s\d]", "", away_team)
-
-          if home_team and away_team:
-            matches_data.append({
-                "match_no": match_no,
-                "home_team": home_team,
-                "away_team": away_team,
-                # 仮投票率（スクレイピング不能時のデフォルト値）
-                "public_votes": {"q1": 0.45, "q0": 0.28, "q2": 0.27},
-                "prob": {"p1": 0.50, "p0": 0.25, "p2": 0.25},
-            })
-
-  # 13試合分揃っているか確認（事故防止ガード）
-  matches_data = sorted(matches_data, key=lambda x: x["match_no"])
-
-  # 重複除去
-  unique_matches = []
-  seen_no = set()
-  for m in matches_data:
-    if m["match_no"] not in seen_no:
-      seen_no.add(m["match_no"])
-      unique_matches.append(m)
-
-  print(f"📊 抽出された試合数: {len(unique_matches)}/13 試合")
-
-  # 事故防止：対戦チームが13試合分取得できていない場合は送信中止
-  if len(unique_matches) < 13:
+  # 🛡️ 事故防止安全ガード：13試合分のチーム名が揃わない場合は絶対送信しない
+  if len(matches_data) < 13:
     print(
-        "⚠️ 警報: 対戦チーム名が13試合分正しく取得できませんでした（ダミーデータ送信を防止するため停止します）。"
+        "\n⚠️ 事故防止ガード作動: 13試合分の対戦チーム名が不完全なため、誤発注防止のため送信を停止します。"
     )
-    print("💡 対処法: Secrets に TOTO_ROUND='第1656回' を設定して再試行してください。")
-    # 代替フォールバック：手動オーバーライド時のみ実行継続
-    if not env_round:
-      return None
+    print("💡 【即時解決策】")
+    print(
+        "   GitHubの Settings -> Secrets and variables -> Actions にて"
+    )
+    print("   Name: TOTO_ROUND / Secret: 第1656回 を追加してください。")
+    return None
 
   return {
       "round": round_str,
       "carryover": carryover,
-      "matches": unique_matches,
+      "matches": matches_data,
   }
 
 
 def main():
-  print("=" * 65)
-  print("🤖 toto Quant Engine - 実対戦データ収集・GAS伝送パイプライン")
-  print("=" * 65)
+  print("=" * 60)
+  print("🤖 toto Quant Engine - 実対戦データ取得・事故防止パイプライン")
+  print("=" * 60)
 
   if not GAS_WEBAPP_URL:
     print("❌ エラー: GAS_WEBAPP_URL が設定されていません。")
@@ -137,12 +131,10 @@ def main():
   data = fetch_toto_real_data()
 
   if not data:
-    print(
-        "\n🛑 【事故防止システム作動】不完全なデータによる誤発注を防ぐため、送信を自動停止しました。"
-    )
+    print("\n🛑 安全装置により処理を中断しました。")
     sys.exit(1)
 
-  # GAS送信用JSON
+  # 送信データ構築
   payload = {
       "round": data["round"],
       "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -154,12 +146,8 @@ def main():
           "matches": [
               {
                   "match_no": i,
-                  "home": data["matches"][i - 1]["home_team"]
-                  if i <= len(data["matches"])
-                  else f"チーム_{i}",
-                  "away": data["matches"][i - 1]["away_team"]
-                  if i <= len(data["matches"])
-                  else f"相手_{i}",
+                  "home": data["matches"][i - 1]["home_team"],
+                  "away": data["matches"][i - 1]["away_team"],
                   "q": {"q1": 0.4, "q0": 0.3, "q2": 0.3},
                   "p": {"p1": 0.5, "p0": 0.25, "p2": 0.25},
               }
@@ -169,12 +157,8 @@ def main():
       "goal3_matches": [
           {
               "match_no": i,
-              "home": data["matches"][i - 1]["home_team"]
-              if i <= len(data["matches"])
-              else f"チーム_{i}",
-              "away": data["matches"][i - 1]["away_team"]
-              if i <= len(data["matches"])
-              else f"相手_{i}",
+              "home": data["matches"][i - 1]["home_team"],
+              "away": data["matches"][i - 1]["away_team"],
               "q": [0.3, 0.3, 0.2, 0.2],
               "p": [0.4, 0.3, 0.2, 0.1],
           }
