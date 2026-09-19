@@ -2,8 +2,8 @@ name: Toto Auto Fetcher Schedule
 
 on:
   schedule:
-    # 毎週土曜日・日曜日の朝8時(JST)に自動起動
-    - cron: '0 23 * * 5,6'
+    # 毎日 日本時間 あさ8:00 (UTC 23:00) に自動起動
+    - cron: '0 23 * * *'
   workflow_dispatch: # 手動実行ボタン
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install requests beautifulsoup4
 
       - name: Run Python script
         run: python toto_cloud_fetcher.py
